@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "1094962767456",
+    "project_id": "study-loop-8acb8",
+    "storage_bucket": "study-loop-8acb8.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1094962767456:android:9be3e89e2ba108a7534505",
+        "android_client_info": {
+          "package_name": "com.example.review_app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBFDTj8JMwm3Nq_JECVDtJ77CJn34VuaM4"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
