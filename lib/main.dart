@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'firebase_options.dart';
 import 'l10n/app_localizations.dart';
@@ -87,7 +88,9 @@ class ReviewApp extends StatelessWidget {
                       body: Center(child: CircularProgressIndicator()),
                     );
                   }
-                  if (snapshot.hasData) return HomeScreen();
+                  if (snapshot.hasData) {
+                    return _DeactivationGate(user: snapshot.data!);
+                  }
                   return LoginScreen();
                 },
               ),
@@ -95,6 +98,141 @@ class ReviewApp extends StatelessWidget {
           },
         );
       },
+    );
+  }
+}
+
+// ── 無効化チェックゲート ────────────────────────────────
+
+/// ログイン直後に users/{uid}.isDeactivated を確認するウィジェット。
+/// true なら _DeactivatedScreen を、false なら HomeScreen を表示する。
+class _DeactivationGate extends StatefulWidget {
+  final User user;
+  const _DeactivationGate({required this.user});
+
+  @override
+  State<_DeactivationGate> createState() => _DeactivationGateState();
+}
+
+class _DeactivationGateState extends State<_DeactivationGate> {
+  late final Future<bool> _checkFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkFuture = _isDeactivated();
+  }
+
+  Future<bool> _isDeactivated() async {
+    try {
+      final doc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(widget.user.uid)
+          .get();
+      return doc.data()?['isDeactivated'] == true;
+    } catch (_) {
+      // Firestore アクセスエラー時はフェイルセーフでアクセスを許可
+      return false;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<bool>(
+      future: _checkFuture,
+      builder: (context, snapshot) {
+        // チェック中はローディング
+        if (!snapshot.hasData) {
+          return const Scaffold(
+            body: Center(child: CircularProgressIndicator()),
+          );
+        }
+        // 無効化済み → 専用画面
+        if (snapshot.data == true) return const _DeactivatedScreen();
+        // 正常 → ホーム画面
+        return HomeScreen();
+      },
+    );
+  }
+}
+
+// ── 無効化済み表示画面 ──────────────────────────────────
+
+class _DeactivatedScreen extends StatelessWidget {
+  const _DeactivatedScreen();
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: SafeArea(
+        child: Center(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 36),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // アイコン
+                Container(
+                  padding: const EdgeInsets.all(22),
+                  decoration: BoxDecoration(
+                    color: AppColors.dangerDim,
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    Icons.block_rounded,
+                    size: 40,
+                    color: AppColors.danger,
+                  ),
+                ),
+                const SizedBox(height: 28),
+                // メッセージ
+                const Text(
+                  'このアカウントは\n削除されています',
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: -0.5,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 12),
+                const Text(
+                  'ご不明な点は管理者にお問い合わせください。',
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: AppColors.textSecondary,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 40),
+                // ログイン画面へ戻るボタン（signOut → authStateChanges が LoginScreen に切り替え）
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: () => FirebaseAuth.instance.signOut(),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.danger,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      elevation: 0,
+                    ),
+                    child: const Text(
+                      'ログイン画面へ戻る',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 15,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import '../l10n/app_localizations.dart';
+import '../services/firestore_service.dart';
 import '../services/locale_service.dart';
 import '../services/notification_service.dart';
+import 'material_settings_screen.dart';
 import '../services/theme_service.dart';
 import '../theme/app_theme.dart';
 
@@ -13,14 +15,16 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
+  final FirestoreService _firestoreService = FirestoreService();
+
   // 通知設定
-  bool _notificationEnabled = false;
-  TimeOfDay _notificationTime = const TimeOfDay(hour: 21, minute: 0);
+  bool             _notificationEnabled = false;
+  List<TimeOfDay>  _notificationTimes   = [];
 
   // テーマ設定
-  AppThemeMode _themeMode = AppThemeMode.system;
-  int _darkStartHour = 18;
-  int _darkEndHour   = 6;
+  AppThemeMode _themeMode    = AppThemeMode.system;
+  int          _darkStartHour = 18;
+  int          _darkEndHour   = 6;
 
   bool _isLoading = true;
 
@@ -34,10 +38,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final settings = await NotificationService.loadSettings();
     setState(() {
       _notificationEnabled = settings['enabled'] as bool;
-      _notificationTime = TimeOfDay(
-        hour:   settings['hour'] as int,
-        minute: settings['minute'] as int,
-      );
+      _notificationTimes   = settings['times']   as List<TimeOfDay>;
       _themeMode     = ThemeService.mode;
       _darkStartHour = ThemeService.darkStartHour;
       _darkEndHour   = ThemeService.darkEndHour;
@@ -52,44 +53,77 @@ class _SettingsScreenState extends State<SettingsScreen> {
     setState(() => _notificationEnabled = value);
     if (value) {
       await NotificationService.requestPermission();
-      await NotificationService.scheduleDailyNotification(
-        hour: _notificationTime.hour,
-        minute: _notificationTime.minute,
-      );
+      if (_notificationTimes.isNotEmpty) {
+        await NotificationService.scheduleAllNotifications(_notificationTimes);
+      }
     } else {
-      await NotificationService.cancelNotification();
+      await NotificationService.cancelAllNotifications();
     }
     await NotificationService.saveSettings(
       enabled: value,
-      hour:    _notificationTime.hour,
-      minute:  _notificationTime.minute,
+      times:   _notificationTimes,
     );
     if (mounted) {
       _showSnackbar(value ? l.notificationEnabledMsg : l.notificationDisabledMsg);
     }
   }
 
-  Future<void> _onPickNotificationTime() async {
-    final l = AppLocalizations.of(context);
+  Future<void> _onAddTime() async {
     final picked = await showTimePicker(
       context: context,
-      initialTime: _notificationTime,
+      initialTime: const TimeOfDay(hour: 21, minute: 0),
     );
-    if (picked != null) {
-      setState(() => _notificationTime = picked);
-      if (_notificationEnabled) {
-        await NotificationService.scheduleDailyNotification(
-          hour: picked.hour, minute: picked.minute,
-        );
+    if (picked == null || !mounted) return;
+
+    // 重複チェック
+    final isDuplicate = _notificationTimes.any(
+      (t) => t.hour == picked.hour && t.minute == picked.minute,
+    );
+    if (isDuplicate) {
+      _showSnackbar('${_fmt(picked.hour)}:${_fmt(picked.minute)} はすでに登録されています');
+      return;
+    }
+
+    // 時間順にソートして追加
+    final updated = [..._notificationTimes, picked]
+      ..sort((a, b) =>
+          a.hour != b.hour ? a.hour - b.hour : a.minute - b.minute);
+
+    setState(() => _notificationTimes = updated);
+
+    if (_notificationEnabled) {
+      await NotificationService.scheduleAllNotifications(updated);
+    }
+    await NotificationService.saveSettings(
+      enabled: _notificationEnabled,
+      times:   updated,
+    );
+
+    if (mounted) {
+      _showSnackbar('${_fmt(picked.hour)}:${_fmt(picked.minute)} を追加しました');
+    }
+  }
+
+  Future<void> _onRemoveTime(int index) async {
+    final removed = _notificationTimes[index];
+    final updated = [..._notificationTimes]..removeAt(index);
+
+    setState(() => _notificationTimes = updated);
+
+    if (_notificationEnabled) {
+      if (updated.isEmpty) {
+        await NotificationService.cancelAllNotifications();
+      } else {
+        await NotificationService.scheduleAllNotifications(updated);
       }
-      await NotificationService.saveSettings(
-        enabled: _notificationEnabled,
-        hour:    picked.hour,
-        minute:  picked.minute,
-      );
-      if (mounted) {
-        _showSnackbar(l.notificationTimeSetMsg(_fmt(picked.hour), _fmt(picked.minute)));
-      }
+    }
+    await NotificationService.saveSettings(
+      enabled: _notificationEnabled,
+      times:   updated,
+    );
+
+    if (mounted) {
+      _showSnackbar('${_fmt(removed.hour)}:${_fmt(removed.minute)} を削除しました');
     }
   }
 
@@ -154,6 +188,44 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
+  // ── アカウント管理 ─────────────────────────────────────
+
+  Future<void> _showDeactivateDialog() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('アカウントを削除'),
+        content: const Text(
+          'アカウントを削除すると、このアプリは利用できなくなります。\n\n'
+          'データはすぐには削除されず、後から復元できる可能性があります。',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('キャンセル'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: TextButton.styleFrom(foregroundColor: AppColors.danger),
+            child: const Text(
+              '削除する',
+              style: TextStyle(fontWeight: FontWeight.w700),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !mounted) return;
+
+    try {
+      await _firestoreService.deactivateAccount();
+      if (mounted) _showSnackbar('アカウントを削除しました');
+    } catch (e) {
+      if (mounted) _showSnackbar('エラーが発生しました。もう一度お試しください。');
+    }
+  }
+
   // ── ビルド ─────────────────────────────────────────────
 
   @override
@@ -169,13 +241,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
                 // ── テーマ設定（折りたたみ）──────────────
                 _ThemeExpansionTile(
-                  themeMode: _themeMode,
-                  darkStartHour: _darkStartHour,
-                  darkEndHour: _darkEndHour,
-                  onThemeModeChanged: _onThemeModeChanged,
-                  onPickDarkStart: _onPickDarkStart,
-                  onPickDarkEnd: _onPickDarkEnd,
-                  fmt: _fmt,
+                  themeMode:           _themeMode,
+                  darkStartHour:       _darkStartHour,
+                  darkEndHour:         _darkEndHour,
+                  onThemeModeChanged:  _onThemeModeChanged,
+                  onPickDarkStart:     _onPickDarkStart,
+                  onPickDarkEnd:       _onPickDarkEnd,
+                  fmt:                 _fmt,
                 ),
 
                 const Divider(height: 32),
@@ -186,25 +258,42 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
                 const Divider(height: 32),
 
+                // ── 教材設定 ─────────────────────────────
+                _SectionHeader(title: '教材設定'),
+                ListTile(
+                  leading: const Icon(Icons.menu_book_outlined,
+                      color: AppColors.primary, size: 22),
+                  title: const Text('教材ごとの復習スパン'),
+                  subtitle: const Text('教材別に復習間隔をカスタマイズ'),
+                  trailing: const Icon(Icons.chevron_right,
+                      color: AppColors.textSecondary),
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                        builder: (_) => const MaterialSettingsScreen()),
+                  ),
+                ),
+
+                const Divider(height: 32),
+
                 // ── 通知設定 ─────────────────────────────
                 _SectionHeader(title: l.notificationsSection),
 
                 SwitchListTile(
-                  title: Text(l.dailyReminderTitle),
-                  subtitle: Text(l.dailyReminderSubtitle),
-                  value: _notificationEnabled,
+                  title:       Text(l.dailyReminderTitle),
+                  subtitle:    Text(l.dailyReminderSubtitle),
+                  value:       _notificationEnabled,
                   activeColor: AppColors.primary,
-                  onChanged: _onToggleNotification,
+                  onChanged:   _onToggleNotification,
                 ),
-                ListTile(
-                  title: Text(l.notificationTimeLabel),
-                  subtitle: Text(
-                    '${_fmt(_notificationTime.hour)}:${_fmt(_notificationTime.minute)}',
-                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-                  ),
-                  trailing: const Icon(Icons.access_time),
-                  enabled: _notificationEnabled,
-                  onTap: _notificationEnabled ? _onPickNotificationTime : null,
+
+                // 時刻リスト（ON/OFF 問わず常に表示）
+                _NotificationTimeList(
+                  times:    _notificationTimes,
+                  enabled:  _notificationEnabled,
+                  onAdd:    _onAddTime,
+                  onRemove: _onRemoveTime,
+                  fmt:      _fmt,
                 ),
 
                 const Divider(height: 16),
@@ -215,6 +304,29 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     style: AppTextStyles.caption,
                   ),
                 ),
+
+                const Divider(height: 32),
+
+                // ── アカウント管理 ─────────────────────────
+                _SectionHeader(title: 'アカウント管理'),
+                ListTile(
+                  leading: const Icon(
+                    Icons.block_rounded,
+                    color: AppColors.danger,
+                    size: 22,
+                  ),
+                  title: const Text(
+                    'アカウントを削除',
+                    style: TextStyle(
+                      color: AppColors.danger,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  subtitle: const Text('アカウントとデータを削除する'),
+                  onTap: _showDeactivateDialog,
+                ),
+
+                const SizedBox(height: 32),
               ],
             ),
     );
@@ -236,12 +348,163 @@ class _SectionHeader extends StatelessWidget {
   }
 }
 
+// ── 通知時刻リスト ──────────────────────────────────────
+
+class _NotificationTimeList extends StatelessWidget {
+  final List<TimeOfDay> times;
+  final bool            enabled;
+  final VoidCallback    onAdd;
+  final void Function(int) onRemove;
+  final String Function(int) fmt;
+
+  const _NotificationTimeList({
+    required this.times,
+    required this.enabled,
+    required this.onAdd,
+    required this.onRemove,
+    required this.fmt,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final primaryColor = isDark ? AppColors.primary : AppLightColors.primary;
+    final dimColor     = isDark ? AppColors.primaryDim : AppLightColors.primaryDim;
+    final textColor    = isDark ? AppColors.textPrimary : AppLightColors.textPrimary;
+    final hintColor    = isDark ? AppColors.textSecondary : AppLightColors.textSecondary;
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+
+          // ── 登録済み時刻チップ ──────────────────────────
+          if (times.isEmpty)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Text(
+                '通知時刻が登録されていません',
+                style: TextStyle(fontSize: 13, color: hintColor),
+              ),
+            )
+          else
+            Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: Wrap(
+                spacing:    8,
+                runSpacing: 8,
+                children: times.asMap().entries.map((e) {
+                  final idx = e.key;
+                  final t   = e.value;
+                  return _TimeChip(
+                    label:       '${fmt(t.hour)}:${fmt(t.minute)}',
+                    enabled:     enabled,
+                    primaryColor: primaryColor,
+                    dimColor:    dimColor,
+                    textColor:   textColor,
+                    hintColor:   hintColor,
+                    onDelete:    () => onRemove(idx),
+                  );
+                }).toList(),
+              ),
+            ),
+
+          // ── 時刻を追加ボタン ────────────────────────────
+          SizedBox(
+            height: 36,
+            child: OutlinedButton.icon(
+              onPressed: onAdd,
+              icon:  Icon(Icons.add_alarm_rounded, size: 16, color: primaryColor),
+              label: Text(
+                '時刻を追加',
+                style: TextStyle(fontSize: 13, color: primaryColor),
+              ),
+              style: OutlinedButton.styleFrom(
+                side:    BorderSide(color: primaryColor.withOpacity(0.5)),
+                shape:   RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                padding: const EdgeInsets.symmetric(horizontal: 14),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── 時刻チップ ──────────────────────────────────────────
+
+class _TimeChip extends StatelessWidget {
+  final String   label;
+  final bool     enabled;
+  final Color    primaryColor;
+  final Color    dimColor;
+  final Color    textColor;
+  final Color    hintColor;
+  final VoidCallback onDelete;
+
+  const _TimeChip({
+    required this.label,
+    required this.enabled,
+    required this.primaryColor,
+    required this.dimColor,
+    required this.textColor,
+    required this.hintColor,
+    required this.onDelete,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color:        dimColor,
+        borderRadius: BorderRadius.circular(20),
+        border:       Border.all(
+          color: enabled
+              ? primaryColor.withOpacity(0.5)
+              : primaryColor.withOpacity(0.2),
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            Icons.access_time_rounded,
+            size:  14,
+            color: enabled ? primaryColor : primaryColor.withOpacity(0.5),
+          ),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize:   14,
+              fontWeight: FontWeight.w600,
+              color:      enabled ? primaryColor : primaryColor.withOpacity(0.5),
+            ),
+          ),
+          const SizedBox(width: 6),
+          GestureDetector(
+            onTap:     onDelete,
+            behavior:  HitTestBehavior.opaque,
+            child: Padding(
+              padding: const EdgeInsets.only(left: 2),
+              child: Icon(Icons.close_rounded, size: 14, color: hintColor),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 // ── 言語選択：折りたたみパネル ──────────────────────────
 
 class _LanguageExpansionTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
-    final l = AppLocalizations.of(context);
+    final l       = AppLocalizations.of(context);
     final current = LocaleService.current;
 
     final String currentLabel = current.languageCode == 'en'
@@ -251,16 +514,16 @@ class _LanguageExpansionTile extends StatelessWidget {
     return Theme(
       data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
       child: ExpansionTile(
-        tilePadding: const EdgeInsets.symmetric(horizontal: 16),
+        tilePadding:     const EdgeInsets.symmetric(horizontal: 16),
         childrenPadding: EdgeInsets.zero,
-        leading: const Icon(Icons.language_rounded, color: AppColors.primary, size: 22),
-        title: Text(l.languageSection, style: const TextStyle(fontSize: 15)),
+        leading:  const Icon(Icons.language_rounded, color: AppColors.primary, size: 22),
+        title:    Text(l.languageSection, style: const TextStyle(fontSize: 15)),
         subtitle: Text(currentLabel, style: AppTextStyles.caption),
-        iconColor: AppColors.textSecondary,
+        iconColor:          AppColors.textSecondary,
         collapsedIconColor: AppColors.textSecondary,
         children: [
           _langOption(context, 'ja', l.languageJapanese, '日本語', current),
-          _langOption(context, 'en', l.languageEnglish, 'English', current),
+          _langOption(context, 'en', l.languageEnglish,  'English', current),
         ],
       ),
     );
@@ -275,9 +538,9 @@ class _LanguageExpansionTile extends StatelessWidget {
   ) {
     final isSelected = current.languageCode == code;
     return RadioListTile<String>(
-      value: code,
+      value:      code,
       groupValue: current.languageCode,
-      onChanged: (val) {
+      onChanged:  (val) {
         if (val != null) LocaleService.changeLocale(Locale(val));
       },
       activeColor: AppColors.primary,
@@ -288,16 +551,13 @@ class _LanguageExpansionTile extends StatelessWidget {
           Text(
             nativeName,
             style: TextStyle(
-              fontSize: 14,
+              fontSize:   14,
               fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
             ),
           ),
           if (label != nativeName) ...[
             const SizedBox(width: 8),
-            Text(
-              label,
-              style: AppTextStyles.caption,
-            ),
+            Text(label, style: AppTextStyles.caption),
           ],
         ],
       ),
@@ -308,8 +568,8 @@ class _LanguageExpansionTile extends StatelessWidget {
 /// テーマ設定：タップで開閉する折りたたみパネル
 class _ThemeExpansionTile extends StatelessWidget {
   final AppThemeMode themeMode;
-  final int darkStartHour;
-  final int darkEndHour;
+  final int          darkStartHour;
+  final int          darkEndHour;
   final ValueChanged<AppThemeMode?> onThemeModeChanged;
   final VoidCallback onPickDarkStart;
   final VoidCallback onPickDarkEnd;
@@ -329,7 +589,7 @@ class _ThemeExpansionTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final l = AppLocalizations.of(context);
 
-    String currentLabel;
+    String  currentLabel;
     IconData currentIcon;
     switch (themeMode) {
       case AppThemeMode.system:
@@ -353,12 +613,12 @@ class _ThemeExpansionTile extends StatelessWidget {
     return Theme(
       data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
       child: ExpansionTile(
-        tilePadding: const EdgeInsets.symmetric(horizontal: 16),
+        tilePadding:     const EdgeInsets.symmetric(horizontal: 16),
         childrenPadding: EdgeInsets.zero,
-        leading: Icon(currentIcon, color: AppColors.primary, size: 22),
-        title: Text(l.themeSection, style: const TextStyle(fontSize: 15)),
+        leading:  Icon(currentIcon, color: AppColors.primary, size: 22),
+        title:    Text(l.themeSection, style: const TextStyle(fontSize: 15)),
         subtitle: Text(currentLabel, style: AppTextStyles.caption),
-        iconColor: AppColors.textSecondary,
+        iconColor:          AppColors.textSecondary,
         collapsedIconColor: AppColors.textSecondary,
         children: [
           _option(context, Icons.brightness_auto, l.themeSystem,     l.themeSystemDesc,    AppThemeMode.system),
@@ -372,13 +632,13 @@ class _ThemeExpansionTile extends StatelessWidget {
               child: Container(
                 padding: const EdgeInsets.all(14),
                 decoration: BoxDecoration(
-                  color: AppColors.primaryDim,
+                  color:        AppColors.primaryDim,
                   borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: AppColors.primary.withOpacity(0.25)),
+                  border:       Border.all(color: AppColors.primary.withOpacity(0.25)),
                 ),
                 child: Column(
                   children: [
-                    _timePicker(Icons.dark_mode,  l.darkStartLabel,  fmt(darkStartHour), onPickDarkStart),
+                    _timePicker(Icons.dark_mode,  l.darkStartLabel,   fmt(darkStartHour), onPickDarkStart),
                     const SizedBox(height: 10),
                     _timePicker(Icons.light_mode, l.lightReturnLabel, fmt(darkEndHour),   onPickDarkEnd),
                     const SizedBox(height: 8),
@@ -398,9 +658,9 @@ class _ThemeExpansionTile extends StatelessWidget {
   Widget _option(BuildContext context, IconData icon, String title, String subtitle, AppThemeMode value) {
     final isSelected = themeMode == value;
     return RadioListTile<AppThemeMode>(
-      value: value,
+      value:      value,
       groupValue: themeMode,
-      onChanged: onThemeModeChanged,
+      onChanged:  onThemeModeChanged,
       activeColor: AppColors.primary,
       dense: true,
       title: Row(
@@ -408,7 +668,7 @@ class _ThemeExpansionTile extends StatelessWidget {
           Icon(icon, size: 18, color: isSelected ? AppColors.primary : AppColors.textSecondary),
           const SizedBox(width: 8),
           Text(title, style: TextStyle(
-            fontSize: 14,
+            fontSize:   14,
             fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
           )),
         ],
@@ -431,7 +691,7 @@ class _ThemeExpansionTile extends StatelessWidget {
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
             decoration: BoxDecoration(
-              color: AppColors.surface,
+              color:  AppColors.surface,
               borderRadius: BorderRadius.circular(8),
               border: Border.all(color: AppColors.primary.withOpacity(0.5)),
             ),

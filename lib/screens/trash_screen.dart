@@ -56,11 +56,11 @@ class _TrashScreenState extends State<TrashScreen> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: Text(l.permanentDeleteTitle),
-        content: Text(l.permanentDeleteConfirm(item.subject, item.unit)),
+        content: Text(l.permanentDeleteContent(item.subject, item.unit)),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: Text(l.cancelAction),
+            child: Text(l.cancelButton),
           ),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
@@ -81,12 +81,12 @@ class _TrashScreenState extends State<TrashScreen> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: Text(l.emptyTrashTitle),
-        content: Text(l.emptyTrashConfirm(_trashItems.length)),
+        title: Text(l.deleteAllAction),
+        content: Text(l.emptyTrashContent(_trashItems.length)),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: Text(l.cancelAction),
+            child: Text(l.cancelButton),
           ),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
@@ -104,32 +104,43 @@ class _TrashScreenState extends State<TrashScreen> {
   }
 
   String _deletedAgo(DateTime deletedAt) {
+    final l = AppLocalizations.of(context);
     final diff = DateTime.now().difference(deletedAt);
-    if (diff.inMinutes < 60) return '${diff.inMinutes}分前に削除';
-    if (diff.inHours < 24) return '${diff.inHours}時間前に削除';
-    return '${diff.inDays}日前に削除';
+    if (diff.inMinutes < 60) return l.deletedMinutesAgo(diff.inMinutes);
+    if (diff.inHours < 24) return l.deletedHoursAgo(diff.inHours);
+    return l.deletedDaysAgo(diff.inDays);
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.delete_outline_rounded, size: 18),
-            const SizedBox(width: 8),
-            const Text('ゴミ箱'),
-          ],
+        title: Builder(
+          builder: (ctx) {
+            final l = AppLocalizations.of(ctx);
+            return Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.delete_outline_rounded, size: 18),
+                const SizedBox(width: 8),
+                Text(l.trashTitle),
+              ],
+            );
+          },
         ),
         actions: [
           if (_trashItems.isNotEmpty)
-            TextButton(
-              onPressed: _emptyTrash,
-              child: const Text(
-                'すべて削除',
-                style: TextStyle(color: AppColors.danger, fontWeight: FontWeight.w600),
-              ),
+            Builder(
+              builder: (ctx) {
+                final l = AppLocalizations.of(ctx);
+                return TextButton(
+                  onPressed: _emptyTrash,
+                  child: Text(
+                    l.deleteAllAction,
+                    style: const TextStyle(color: AppColors.danger, fontWeight: FontWeight.w600),
+                  ),
+                );
+              },
             ),
         ],
       ),
@@ -178,11 +189,17 @@ class _TrashScreenState extends State<TrashScreen> {
             ),
           ),
           const SizedBox(height: 20),
-          const Text('ゴミ箱は空です', style: AppTextStyles.heading2),
-          const SizedBox(height: 8),
-          const Text(
-            '削除した記録はここに表示されます',
-            style: AppTextStyles.caption,
+          Builder(
+            builder: (ctx) {
+              final l = AppLocalizations.of(ctx);
+              return Column(
+                children: [
+                  Text(l.trashEmpty, style: AppTextStyles.heading2),
+                  const SizedBox(height: 8),
+                  Text(l.trashEmptyHint, style: AppTextStyles.caption),
+                ],
+              );
+            },
           ),
         ],
       ),
@@ -283,28 +300,33 @@ class _TrashCard extends StatelessWidget {
                 ),
               ),
               // 右側アクション
-              Padding(
-                padding: const EdgeInsets.fromLTRB(0, 12, 12, 12),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    // 復元ボタン
-                    _ActionButton(
-                      icon: Icons.restore_rounded,
-                      label: '復元',
-                      color: AppColors.primary,
-                      onTap: onRestore,
+              Builder(
+                builder: (ctx) {
+                  final l = AppLocalizations.of(ctx);
+                  return Padding(
+                    padding: const EdgeInsets.fromLTRB(0, 12, 12, 12),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        // 復元ボタン
+                        _ActionButton(
+                          icon: Icons.restore_rounded,
+                          label: l.restoreAction,
+                          color: AppColors.primary,
+                          onTap: onRestore,
+                        ),
+                        const SizedBox(height: 8),
+                        // 完全削除ボタン
+                        _ActionButton(
+                          icon: Icons.delete_forever_rounded,
+                          label: l.deleteAction,
+                          color: AppColors.danger,
+                          onTap: onDelete,
+                        ),
+                      ],
                     ),
-                    const SizedBox(height: 8),
-                    // 完全削除ボタン
-                    _ActionButton(
-                      icon: Icons.delete_forever_rounded,
-                      label: '削除',
-                      color: AppColors.danger,
-                      onTap: onDelete,
-                    ),
-                  ],
-                ),
+                  );
+                },
               ),
             ],
           ),

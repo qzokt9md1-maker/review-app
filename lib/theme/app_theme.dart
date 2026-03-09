@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
+import '../l10n/app_localizations.dart';
 
 // ────────────────────────────────────────────────────────────
 // Nordic Dark  ディープネイビー × ペールブルー
@@ -47,10 +49,13 @@ class AppColors {
 
 // ── テキストスタイル ────────────────────────────────────
 class AppTextStyles {
+  // 日本語 UI 向けフォントフォールバック
+  // primary: Noto Sans JP (google_fonts が ThemeData 経由で適用)
+  // fallback: iOS/macOS → Hiragino Sans、Android → Noto Sans JP、その他 → Arial
   static const _fallback = [
-    'SF Pro Display', 'SF Pro Text',
-    'Hiragino Sans', 'Yu Gothic',
-    'Noto Sans JP', 'Meiryo', 'sans-serif',
+    'Hiragino Sans', // iOS / macOS 日本語
+    'Noto Sans JP',  // Android (google_fonts 登録名と一致)
+    'Arial',         // 最終フォールバック
   ];
 
   static const heading1 = TextStyle(
@@ -80,13 +85,26 @@ class AppTextStyles {
 
 // ── ダークテーマ ────────────────────────────────────────
 class AppTheme {
-  static const _fallback = [
-    'SF Pro Display', 'SF Pro Text',
-    'Hiragino Sans', 'Yu Gothic',
-    'Noto Sans JP', 'Meiryo', 'sans-serif',
-  ];
-
   static ThemeData get theme {
+    // Noto Sans JP を全テキストスタイルに適用（ダーク用カラーで上書き）
+    final notoJpTextTheme = GoogleFonts.notoSansJpTextTheme(const TextTheme(
+      displayLarge:   TextStyle(),
+      displayMedium:  TextStyle(),
+      displaySmall:   TextStyle(),
+      headlineLarge:  TextStyle(),
+      headlineMedium: TextStyle(),
+      headlineSmall:  TextStyle(),
+      titleLarge:     TextStyle(),
+      titleMedium:    TextStyle(),
+      titleSmall:     TextStyle(),
+      bodyLarge:      TextStyle(color: AppColors.textPrimary),
+      bodyMedium:     TextStyle(color: AppColors.textPrimary),
+      bodySmall:      TextStyle(color: AppColors.textSecondary),
+      labelLarge:     TextStyle(),
+      labelMedium:    TextStyle(),
+      labelSmall:     TextStyle(),
+    ));
+
     return ThemeData(
       useMaterial3: true,
       brightness: Brightness.dark,
@@ -101,43 +119,26 @@ class AppTheme {
       ),
       scaffoldBackgroundColor: AppColors.background,
 
-      textTheme: const TextTheme(
-        displayLarge:   TextStyle(fontFamilyFallback: _fallback),
-        displayMedium:  TextStyle(fontFamilyFallback: _fallback),
-        displaySmall:   TextStyle(fontFamilyFallback: _fallback),
-        headlineLarge:  TextStyle(fontFamilyFallback: _fallback),
-        headlineMedium: TextStyle(fontFamilyFallback: _fallback),
-        headlineSmall:  TextStyle(fontFamilyFallback: _fallback),
-        titleLarge:     TextStyle(fontFamilyFallback: _fallback),
-        titleMedium:    TextStyle(fontFamilyFallback: _fallback),
-        titleSmall:     TextStyle(fontFamilyFallback: _fallback),
-        bodyLarge:      TextStyle(fontFamilyFallback: _fallback, color: AppColors.textPrimary),
-        bodyMedium:     TextStyle(fontFamilyFallback: _fallback, color: AppColors.textPrimary),
-        bodySmall:      TextStyle(fontFamilyFallback: _fallback, color: AppColors.textSecondary),
-        labelLarge:     TextStyle(fontFamilyFallback: _fallback),
-        labelMedium:    TextStyle(fontFamilyFallback: _fallback),
-        labelSmall:     TextStyle(fontFamilyFallback: _fallback),
-      ),
+      textTheme: notoJpTextTheme,
 
-      appBarTheme: const AppBarTheme(
+      appBarTheme: AppBarTheme(
         backgroundColor: AppColors.background,
         foregroundColor: AppColors.textPrimary,
         elevation: 0,
         scrolledUnderElevation: 0,
         centerTitle: false,
-        titleTextStyle: TextStyle(
+        titleTextStyle: GoogleFonts.notoSansJp(
           fontSize: 18, fontWeight: FontWeight.w700,
           color: AppColors.textPrimary, letterSpacing: -0.3,
-          fontFamilyFallback: _fallback,
         ),
-        iconTheme: IconThemeData(color: AppColors.textSecondary),
+        iconTheme: const IconThemeData(color: AppColors.textSecondary),
       ),
 
       // Card: 角丸を小さく・シャドウ有り
       cardTheme: CardThemeData(
         color: AppColors.surface,
         elevation: 3,
-        shadowColor: Color(0xFF080C18),
+        shadowColor: const Color(0xFF080C18),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(10),
         ),
@@ -151,10 +152,8 @@ class AppTheme {
           elevation: 0,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
           padding: const EdgeInsets.symmetric(vertical: 16),
-          textStyle: const TextStyle(
-            fontSize: 15, fontWeight: FontWeight.w700,
-            letterSpacing: 0.3,
-            fontFamilyFallback: _fallback,
+          textStyle: GoogleFonts.notoSansJp(
+            fontSize: 15, fontWeight: FontWeight.w700, letterSpacing: 0.3,
           ),
         ),
       ),
@@ -162,7 +161,7 @@ class AppTheme {
       textButtonTheme: TextButtonThemeData(
         style: TextButton.styleFrom(
           foregroundColor: AppColors.primary,
-          textStyle: const TextStyle(fontWeight: FontWeight.w600, fontFamilyFallback: _fallback),
+          textStyle: GoogleFonts.notoSansJp(fontWeight: FontWeight.w600),
         ),
       ),
 
@@ -181,8 +180,8 @@ class AppTheme {
           borderRadius: BorderRadius.circular(8),
           borderSide: const BorderSide(color: AppColors.primary, width: 1.5),
         ),
-        labelStyle: const TextStyle(color: AppColors.textSecondary, fontFamilyFallback: _fallback),
-        hintStyle: const TextStyle(color: AppColors.textHint, fontFamilyFallback: _fallback),
+        labelStyle: GoogleFonts.notoSansJp(color: AppColors.textSecondary),
+        hintStyle: GoogleFonts.notoSansJp(color: AppColors.textHint),
         contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       ),
 
@@ -199,14 +198,14 @@ class AppTheme {
 
       snackBarTheme: SnackBarThemeData(
         backgroundColor: AppColors.overlay,
-        contentTextStyle: const TextStyle(color: AppColors.textPrimary, fontFamilyFallback: _fallback),
+        contentTextStyle: GoogleFonts.notoSansJp(color: AppColors.textPrimary),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
         behavior: SnackBarBehavior.floating,
       ),
 
-      popupMenuTheme: const PopupMenuThemeData(
+      popupMenuTheme: PopupMenuThemeData(
         color: AppColors.overlay,
-        textStyle: TextStyle(color: AppColors.textPrimary, fontFamilyFallback: _fallback),
+        textStyle: GoogleFonts.notoSansJp(color: AppColors.textPrimary),
       ),
     );
   }
@@ -308,15 +307,25 @@ class UnderstandingBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context);
     Color color;
     IconData icon;
+    String displayLabel;
     switch (understanding) {
       case 'できた':
-        color = AppColors.success; icon = Icons.check_circle_outline; break;
+        color = AppColors.success;
+        icon = Icons.check_circle_outline;
+        displayLabel = l.understoodLabel;
+        break;
       case '微妙':
-        color = AppColors.warning; icon = Icons.help_outline; break;
+        color = AppColors.warning;
+        icon = Icons.help_outline;
+        displayLabel = l.soSoLabel;
+        break;
       default:
-        color = AppColors.danger;  icon = Icons.cancel_outlined;
+        color = AppColors.danger;
+        icon = Icons.cancel_outlined;
+        displayLabel = l.notYetLabel;
     }
     return Row(
       mainAxisSize: MainAxisSize.min,
@@ -324,7 +333,7 @@ class UnderstandingBadge extends StatelessWidget {
         Icon(icon, size: 13, color: color),
         const SizedBox(width: 4),
         Text(
-          understanding,
+          displayLabel,
           style: TextStyle(
             fontSize: 11, fontWeight: FontWeight.w600, color: color,
             fontFamilyFallback: AppTextStyles._fallback,
@@ -357,13 +366,26 @@ class AppLightColors {
 }
 
 class AppThemeLight {
-  static const _fallback = [
-    'SF Pro Display', 'SF Pro Text',
-    'Hiragino Sans', 'Yu Gothic',
-    'Noto Sans JP', 'Meiryo', 'sans-serif',
-  ];
-
   static ThemeData get lightTheme {
+    // Noto Sans JP を全テキストスタイルに適用（ライト用カラーで上書き）
+    final notoJpTextTheme = GoogleFonts.notoSansJpTextTheme(const TextTheme(
+      displayLarge:   TextStyle(),
+      displayMedium:  TextStyle(),
+      displaySmall:   TextStyle(),
+      headlineLarge:  TextStyle(),
+      headlineMedium: TextStyle(),
+      headlineSmall:  TextStyle(),
+      titleLarge:     TextStyle(),
+      titleMedium:    TextStyle(),
+      titleSmall:     TextStyle(),
+      bodyLarge:      TextStyle(color: AppLightColors.textPrimary),
+      bodyMedium:     TextStyle(color: AppLightColors.textPrimary),
+      bodySmall:      TextStyle(color: AppLightColors.textSecondary),
+      labelLarge:     TextStyle(),
+      labelMedium:    TextStyle(),
+      labelSmall:     TextStyle(),
+    ));
+
     return ThemeData(
       useMaterial3: true,
       brightness: Brightness.light,
@@ -376,40 +398,23 @@ class AppThemeLight {
         onSurface: AppLightColors.textPrimary,
       ),
       scaffoldBackgroundColor: AppLightColors.background,
-      textTheme: const TextTheme(
-        bodyLarge:      TextStyle(fontFamilyFallback: _fallback, color: AppLightColors.textPrimary),
-        bodyMedium:     TextStyle(fontFamilyFallback: _fallback, color: AppLightColors.textPrimary),
-        bodySmall:      TextStyle(fontFamilyFallback: _fallback, color: AppLightColors.textSecondary),
-        displayLarge:   TextStyle(fontFamilyFallback: _fallback),
-        displayMedium:  TextStyle(fontFamilyFallback: _fallback),
-        displaySmall:   TextStyle(fontFamilyFallback: _fallback),
-        headlineLarge:  TextStyle(fontFamilyFallback: _fallback),
-        headlineMedium: TextStyle(fontFamilyFallback: _fallback),
-        headlineSmall:  TextStyle(fontFamilyFallback: _fallback),
-        titleLarge:     TextStyle(fontFamilyFallback: _fallback),
-        titleMedium:    TextStyle(fontFamilyFallback: _fallback),
-        titleSmall:     TextStyle(fontFamilyFallback: _fallback),
-        labelLarge:     TextStyle(fontFamilyFallback: _fallback),
-        labelMedium:    TextStyle(fontFamilyFallback: _fallback),
-        labelSmall:     TextStyle(fontFamilyFallback: _fallback),
-      ),
-      appBarTheme: const AppBarTheme(
+      textTheme: notoJpTextTheme,
+      appBarTheme: AppBarTheme(
         backgroundColor: AppLightColors.background,
         foregroundColor: AppLightColors.textPrimary,
         elevation: 0,
         scrolledUnderElevation: 0,
         centerTitle: false,
-        titleTextStyle: TextStyle(
+        titleTextStyle: GoogleFonts.notoSansJp(
           fontSize: 18, fontWeight: FontWeight.w700,
           color: AppLightColors.textPrimary, letterSpacing: -0.3,
-          fontFamilyFallback: _fallback,
         ),
-        iconTheme: IconThemeData(color: AppLightColors.textSecondary),
+        iconTheme: const IconThemeData(color: AppLightColors.textSecondary),
       ),
       cardTheme: CardThemeData(
         color: AppLightColors.surface,
         elevation: 2,
-        shadowColor: Color(0xFF6A7A90),
+        shadowColor: const Color(0xFF6A7A90),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(10),
         ),
@@ -422,17 +427,15 @@ class AppThemeLight {
           elevation: 0,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
           padding: const EdgeInsets.symmetric(vertical: 16),
-          textStyle: const TextStyle(
-            fontSize: 15, fontWeight: FontWeight.w700,
-            letterSpacing: 0.3,
-            fontFamilyFallback: _fallback,
+          textStyle: GoogleFonts.notoSansJp(
+            fontSize: 15, fontWeight: FontWeight.w700, letterSpacing: 0.3,
           ),
         ),
       ),
       textButtonTheme: TextButtonThemeData(
         style: TextButton.styleFrom(
           foregroundColor: AppLightColors.primary,
-          textStyle: const TextStyle(fontWeight: FontWeight.w600, fontFamilyFallback: _fallback),
+          textStyle: GoogleFonts.notoSansJp(fontWeight: FontWeight.w600),
         ),
       ),
       inputDecorationTheme: InputDecorationTheme(
@@ -450,8 +453,8 @@ class AppThemeLight {
           borderRadius: BorderRadius.circular(8),
           borderSide: const BorderSide(color: AppLightColors.primary, width: 1.5),
         ),
-        labelStyle: const TextStyle(color: AppLightColors.textSecondary, fontFamilyFallback: _fallback),
-        hintStyle: const TextStyle(color: AppLightColors.textSecondary, fontFamilyFallback: _fallback),
+        labelStyle: GoogleFonts.notoSansJp(color: AppLightColors.textSecondary),
+        hintStyle: GoogleFonts.notoSansJp(color: AppLightColors.textSecondary),
         contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       ),
       floatingActionButtonTheme: FloatingActionButtonThemeData(
@@ -465,13 +468,13 @@ class AppThemeLight {
       ),
       snackBarTheme: SnackBarThemeData(
         backgroundColor: AppLightColors.overlay,
-        contentTextStyle: const TextStyle(color: AppLightColors.textPrimary, fontFamilyFallback: _fallback),
+        contentTextStyle: GoogleFonts.notoSansJp(color: AppLightColors.textPrimary),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
         behavior: SnackBarBehavior.floating,
       ),
-      popupMenuTheme: const PopupMenuThemeData(
+      popupMenuTheme: PopupMenuThemeData(
         color: AppLightColors.surface,
-        textStyle: TextStyle(color: AppLightColors.textPrimary, fontFamilyFallback: _fallback),
+        textStyle: GoogleFonts.notoSansJp(color: AppLightColors.textPrimary),
       ),
     );
   }

@@ -4,6 +4,8 @@ import '../models/review_item.dart';
 import '../services/firestore_service.dart';
 import '../services/auth_service.dart';
 import '../services/notification_service.dart';
+import '../models/material_review_settings.dart';
+import '../services/srs_service.dart';
 import '../theme/app_theme.dart';
 import 'add_review_screen.dart';
 import 'review_screen.dart';
@@ -41,6 +43,7 @@ class _HomeScreenState extends State<HomeScreen> {
   final Set<String> _selectedIds = {};
 
   final Map<String, int> _subjectColorMap = {};
+  Map<String, MaterialReviewSettings> _materialSettingsMap = {};
 
   @override
   void initState() {
@@ -57,7 +60,8 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _loadAll() async {
     setState(() => _isLoading = true);
     final reviews = await _firestoreService.getReviewItems();
-    final streak = await _firestoreService.getStreak();
+    final streak  = await _firestoreService.getStreak();
+    final matList = await _firestoreService.getMaterialSettings();
     int idx = 0;
     for (final item in reviews) {
       if (!_subjectColorMap.containsKey(item.subject)) {
@@ -65,9 +69,10 @@ class _HomeScreenState extends State<HomeScreen> {
       }
     }
     setState(() {
-      _allReviews = reviews;
-      _streak = streak;
-      _isLoading = false;
+      _allReviews          = reviews;
+      _streak              = streak;
+      _materialSettingsMap = {for (final s in matList) s.materialName: s};
+      _isLoading           = false;
     });
     _updateNotificationWithTodayCount();
   }
@@ -75,12 +80,13 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _updateNotificationWithTodayCount() async {
     final settings = await NotificationService.loadSettings();
     if (settings['enabled'] == true) {
+      final times = settings['times'] as List<TimeOfDay>;
+      if (times.isEmpty) return;
       final count = _todayReviews.length;
-      await NotificationService.scheduleDailyNotification(
-        hour: settings['hour'] as int,
-        minute: settings['minute'] as int,
-        todayCount: count > 0 ? count : null,
-      );
+      final body  = count > 0
+          ? '今日の復習が $count 件あります。さっそく確認しよう！'
+          : null;
+      await NotificationService.scheduleAllNotifications(times, body: body);
     }
   }
 
@@ -151,21 +157,6 @@ class _HomeScreenState extends State<HomeScreen> {
         .toList();
   }
 
-  DateTime _calcNextReviewAt(String result, int reviewCount) {
-    final now = DateTime.now();
-    if (result == 'できた') {
-      if (reviewCount <= 1) return now.add(const Duration(days: 3));
-      if (reviewCount == 2) return now.add(const Duration(days: 7));
-      if (reviewCount == 3) return now.add(const Duration(days: 14));
-      return now.add(const Duration(days: 30));
-    } else if (result == '微妙') {
-      return now.add(const Duration(days: 2));
-    } else {
-      // 'できない'
-      return now.add(const Duration(days: 1));
-    }
-  }
-
   Future<void> _goToAddScreen() async {
     final result = await Navigator.push<ReviewItem>(
       context,
@@ -183,11 +174,29 @@ class _HomeScreenState extends State<HomeScreen> {
       MaterialPageRoute(builder: (_) => ReviewScreen(review: review)),
     );
     if (result != null && mounted) {
-      final newCount = review.reviewCount + 1;
+      final matSettings = _materialSettingsMap[review.material];
+      final SrsResult srs;
+      if (matSettings != null && matSettings.enabled) {
+        srs = SrsService.calculateWithSettings(
+          result:              result,
+          currentIntervalDays: review.currentIntervalDays,
+          easeFactor:          review.easeFactor,
+          reviewCount:         review.reviewCount,
+          settings:            matSettings,
+        );
+      } else {
+        srs = SrsService.calculate(
+          result:              result,
+          currentIntervalDays: review.currentIntervalDays,
+          easeFactor:          review.easeFactor,
+        );
+      }
       final updated = review.copyWith(
-        reviewCount: newCount,
-        lastReviewedAt: DateTime.now(),
-        nextReviewAt: _calcNextReviewAt(result, newCount),
+        reviewCount:         review.reviewCount + 1,
+        lastReviewedAt:      DateTime.now(),
+        nextReviewAt:        srs.nextReviewAt,
+        currentIntervalDays: srs.currentIntervalDays,
+        easeFactor:          srs.easeFactor,
       );
       await _firestoreService.updateReviewItem(updated);
       await _firestoreService.recordStudyLog();
@@ -380,11 +389,11 @@ class _HomeScreenState extends State<HomeScreen> {
               padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
               sliver: SliverList(
                 delegate: SliverChildListDelegate([
-                  if (_streak > 0) ...[
-                    _StreakBanner(streak: _streak),
-                    const SizedBox(height: 12),
-                  ],
-                  _TodayProgressBar(completed: _completedTodayCount, total: _totalTodayCount),
+                  _TodaySummaryCard(
+                    streak: _streak,
+                    completed: _completedTodayCount,
+                    total: _totalTodayCount,
+                  ),
                   const SizedBox(height: 20),
 
                   // 検索バー
@@ -802,116 +811,133 @@ class _MaterialChip extends StatelessWidget {
   }
 }
 
-class _StreakBanner extends StatelessWidget {
+class _TodaySummaryCard extends StatelessWidget {
   final int streak;
-  const _StreakBanner({required this.streak});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
-      decoration: BoxDecoration(
-        color: AppColors.primaryDim,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: AppColors.primary.withOpacity(0.25), width: 0.5),
-        boxShadow: [
-          BoxShadow(color: const Color(0xFF080C18).withOpacity(0.4), blurRadius: 10, offset: const Offset(0, 3)),
-        ],
-      ),
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: AppColors.primary.withOpacity(0.15),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: const Icon(Icons.local_fire_department_rounded, size: 19, color: AppColors.primary),
-          ),
-          const SizedBox(width: 12),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(AppLocalizations.of(context).streakDays(streak), style: const TextStyle(
-                fontSize: 15, fontWeight: FontWeight.w700, color: AppColors.primary, letterSpacing: -0.2,
-              )),
-              Text(AppLocalizations.of(context).streakStudying, style: const TextStyle(fontSize: 12, color: AppColors.textOnDim)),
-            ],
-          ),
-          const Spacer(),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-            decoration: BoxDecoration(
-              color: AppColors.primary.withOpacity(0.15),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Text('$streak', style: const TextStyle(
-              fontSize: 22, fontWeight: FontWeight.w800, color: AppColors.primary, letterSpacing: -1,
-            )),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _TodayProgressBar extends StatelessWidget {
   final int completed;
   final int total;
-  const _TodayProgressBar({required this.completed, required this.total});
+  const _TodaySummaryCard({
+    required this.streak,
+    required this.completed,
+    required this.total,
+  });
 
   @override
   Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context);
     final ratio = total == 0 ? 1.0 : completed / total;
     final isAllDone = total > 0 && completed >= total;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    final accent = isAllDone ? AppColors.success : AppColors.primary;
+    final cardColor = isAllDone
+        ? (isDark ? AppColors.successDim : AppLightColors.successDim)
+        : (isDark ? AppColors.primaryDim : AppLightColors.primaryDim);
+
     return AppCard(
-      color: isAllDone ? AppColors.successDim : AppColors.primaryDim,
+      color: cardColor,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              Row(
-                children: [
-                  Icon(
-                    isAllDone ? Icons.done_all_rounded : Icons.today_rounded,
-                    size: 16,
-                    color: isAllDone ? AppColors.success : AppColors.primary,
-                  ),
-                  const SizedBox(width: 7),
-                  Text(
-                    isAllDone
-                        ? AppLocalizations.of(context).todayProgressDone
-                        : AppLocalizations.of(context).todayProgressLabel,
-                    style: TextStyle(
-                      fontWeight: FontWeight.w700, fontSize: 14, letterSpacing: -0.2,
-                      color: isAllDone ? AppColors.success : AppColors.primary,
+              // 今日のカウント＆ラベル
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(
+                          isAllDone ? Icons.done_all_rounded : Icons.today_rounded,
+                          size: 14, color: accent,
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          isAllDone ? l.todayProgressDone : l.todayProgressLabel,
+                          style: TextStyle(
+                            fontSize: 13, fontWeight: FontWeight.w700,
+                            color: accent, letterSpacing: -0.2,
+                          ),
+                        ),
+                      ],
                     ),
-                  ),
-                ],
-              ),
-              Text(
-                total == 0
-                    ? AppLocalizations.of(context).noSchedule
-                    : '$completed / $total',
-                style: TextStyle(
-                  fontSize: 13, fontWeight: FontWeight.w700,
-                  color: isAllDone ? AppColors.success : AppColors.primary,
+                    const SizedBox(height: 6),
+                    total == 0
+                        ? Text(
+                            l.noSchedule,
+                            style: TextStyle(
+                              fontSize: 18, fontWeight: FontWeight.w700,
+                              color: accent, letterSpacing: -0.5,
+                            ),
+                          )
+                        : Row(
+                            crossAxisAlignment: CrossAxisAlignment.baseline,
+                            textBaseline: TextBaseline.alphabetic,
+                            children: [
+                              Text(
+                                '$completed',
+                                style: TextStyle(
+                                  fontSize: 28, fontWeight: FontWeight.w800,
+                                  color: accent, letterSpacing: -1.5,
+                                ),
+                              ),
+                              Text(
+                                ' / $total',
+                                style: TextStyle(
+                                  fontSize: 15, fontWeight: FontWeight.w600,
+                                  color: accent.withOpacity(0.6),
+                                ),
+                              ),
+                            ],
+                          ),
+                  ],
                 ),
               ),
+              // Streak バッジ（streak > 0 のときのみ）
+              if (streak > 0)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: AppColors.primary.withOpacity(0.12),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                        color: AppColors.primary.withOpacity(0.3), width: 0.5),
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.local_fire_department_rounded,
+                          size: 18, color: AppColors.primary),
+                      const SizedBox(height: 2),
+                      Text(
+                        '$streak',
+                        style: const TextStyle(
+                          fontSize: 22, fontWeight: FontWeight.w800,
+                          color: AppColors.primary, letterSpacing: -1,
+                        ),
+                      ),
+                      Text(
+                        l.streakStudying,
+                        style: const TextStyle(
+                          fontSize: 10, fontWeight: FontWeight.w500,
+                          color: AppColors.textOnDim,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
             ],
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 14),
+          // プログレスバー
           ClipRRect(
             borderRadius: BorderRadius.circular(4),
             child: LinearProgressIndicator(
-              value: ratio, minHeight: 6,
+              value: ratio,
+              minHeight: 7,
               backgroundColor: AppColors.surfaceHigh,
-              valueColor: AlwaysStoppedAnimation<Color>(
-                isAllDone ? AppColors.success : AppColors.primary,
-              ),
+              valueColor: AlwaysStoppedAnimation<Color>(accent),
             ),
           ),
         ],

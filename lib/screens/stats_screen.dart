@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:fl_chart/fl_chart.dart';
 import '../l10n/app_localizations.dart';
 import '../models/review_item.dart';
 import '../services/firestore_service.dart';
@@ -145,7 +144,7 @@ class _StatsScreenState extends State<StatsScreen> {
                             mainAxisSize: MainAxisSize.min,
                             children: [
                               const Icon(
-                                Icons.pie_chart_outline_rounded,
+                                Icons.bar_chart_rounded,
                                 size: 44,
                                 color: AppColors.textSecondary,
                               ),
@@ -160,10 +159,9 @@ class _StatsScreenState extends State<StatsScreen> {
                       ),
                     )
                   else
-                    _PieChartCard(
+                    _SubjectBarCard(
                       subjectCounts: counts,
                       total: _allReviews.length,
-                      isDark: isDark,
                     ),
                 ],
               ),
@@ -352,166 +350,37 @@ class _StatCard extends StatelessWidget {
 // ────────────────────────────────────────────────────────────
 // 円グラフカード（タッチ対応ドーナツ + 凡例）
 // ────────────────────────────────────────────────────────────
-class _PieChartCard extends StatefulWidget {
+// 科目別バーカード（棒グラフのみ）
+// ────────────────────────────────────────────────────────────
+class _SubjectBarCard extends StatelessWidget {
   final Map<String, int> subjectCounts;
   final int total;
-  final bool isDark;
 
-  const _PieChartCard({
+  const _SubjectBarCard({
     required this.subjectCounts,
     required this.total,
-    required this.isDark,
   });
 
   @override
-  State<_PieChartCard> createState() => _PieChartCardState();
-}
-
-class _PieChartCardState extends State<_PieChartCard> {
-  int _touchedIndex = -1;
-
-  @override
   Widget build(BuildContext context) {
-    final entries = widget.subjectCounts.entries.toList();
-    // ドーナツ中央の背景色をカードに合わせる
-    final centerBg = widget.isDark ? AppColors.surface : AppLightColors.surface;
+    final entries = subjectCounts.entries.toList();
 
     return AppCard(
       child: Column(
         children: [
-
-          // ── ドーナツグラフ ──────────────────────────────
-          SizedBox(
-            height: 230,
-            child: Stack(
-              alignment: Alignment.center,
-              children: [
-                PieChart(
-                  PieChartData(
-                    sections: entries.asMap().entries.map((e) {
-                      final idx   = e.key;
-                      final count = e.value.value;
-                      final color = AppColors
-                          .subjectColors[idx % AppColors.subjectColors.length];
-                      final isTouched = _touchedIndex == idx;
-                      return PieChartSectionData(
-                        value:      count.toDouble(),
-                        color:      isTouched ? color : color.withOpacity(0.82),
-                        radius:     isTouched ? 74 : 58,
-                        title:      '',
-                        showTitle:  false,
-                      );
-                    }).toList(),
-                    centerSpaceRadius: 54,
-                    centerSpaceColor:  centerBg,
-                    sectionsSpace:     2,
-                    pieTouchData: PieTouchData(
-                      touchCallback: (event, response) {
-                        setState(() {
-                          if (!event.isInterestedForInteractions ||
-                              response == null ||
-                              response.touchedSection == null) {
-                            _touchedIndex = -1;
-                            return;
-                          }
-                          _touchedIndex =
-                              response.touchedSection!.touchedSectionIndex;
-                        });
-                      },
-                    ),
-                  ),
-                  swapAnimationDuration: const Duration(milliseconds: 220),
-                  swapAnimationCurve:    Curves.easeInOut,
-                ),
-
-                // 中央ラベル
-                Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      '${widget.total}',
-                      style: const TextStyle(
-                        fontSize: 28,
-                        fontWeight: FontWeight.w800,
-                        color: AppColors.primary,
-                        letterSpacing: -1,
-                      ),
-                    ),
-                    Text(
-                      AppLocalizations.of(context).itemsUnit,
-                      style: const TextStyle(
-                        fontSize: 12,
-                        color: AppColors.textSecondary,
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-
-          // ── タッチ時の科目名バッジ ──────────────────────
-          AnimatedSwitcher(
-            duration: const Duration(milliseconds: 200),
-            child: (_touchedIndex >= 0 && _touchedIndex < entries.length)
-                ? Padding(
-                    key: ValueKey(_touchedIndex),
-                    padding: const EdgeInsets.only(bottom: 10),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 16, vertical: 6),
-                      decoration: BoxDecoration(
-                        color: AppColors
-                            .subjectColors[
-                                _touchedIndex % AppColors.subjectColors.length]
-                            .withOpacity(0.15),
-                        borderRadius: BorderRadius.circular(20),
-                        border: Border.all(
-                          color: AppColors.subjectColors[
-                                  _touchedIndex %
-                                      AppColors.subjectColors.length]
-                              .withOpacity(0.3),
-                          width: 0.5,
-                        ),
-                      ),
-                      child: Text(
-                        AppLocalizations.of(context).subjectTouchLabel(
-                          entries[_touchedIndex].key,
-                          entries[_touchedIndex].value,
-                        ),
-                        style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                          color: AppColors.subjectColors[
-                              _touchedIndex %
-                                  AppColors.subjectColors.length],
-                        ),
-                      ),
-                    ),
-                  )
-                : const SizedBox(key: ValueKey(-1), height: 10),
-          ),
-
-          // ── 凡例 + 件数リスト ───────────────────────────
-          const Divider(height: 1, thickness: 0.5),
-          const SizedBox(height: 16),
-
           ...entries.asMap().entries.map((e) {
             final idx     = e.key;
             final subject = e.value.key;
             final count   = e.value.value;
-            final ratio   =
-                widget.total > 0 ? count / widget.total : 0.0;
-            final color   =
-                AppColors.subjectColors[idx % AppColors.subjectColors.length];
+            final ratio   = total > 0 ? count / total : 0.0;
+            final color   = AppColors.subjectColors[idx % AppColors.subjectColors.length];
             return Padding(
               padding: const EdgeInsets.only(bottom: 14),
               child: _SubjectLegendRow(
-                subject:       subject,
-                count:         count,
-                ratio:         ratio,
-                color:         color,
-                isHighlighted: _touchedIndex == idx,
+                subject: subject,
+                count:   count,
+                ratio:   ratio,
+                color:   color,
               ),
             );
           }),
